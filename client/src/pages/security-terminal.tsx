@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,10 +13,19 @@ const TOOLS = [
   { id: "bdfproxy", label: "BDFProxy", desc: "Traffic interception & analysis", icon: "📡" },
 ];
 
+const ACCESS_CODE = "Pielanie420";
+
 export default function SecurityTerminal() {
   const [selectedTool, setSelectedTool] = useState("nmap");
   const [target, setTarget] = useState("");
   const [activeOutput, setActiveOutput] = useState<ScanJob | null>(null);
+
+  // Auth popup state
+  const [showAuthPopup, setShowAuthPopup] = useState(false);
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState(false);
+  const [authShake, setAuthShake] = useState(false);
+  const authInputRef = useRef<HTMLInputElement>(null);
 
   const { data: scans = [], isLoading } = useQuery<ScanJob[]>({
     queryKey: ["/api/scans"],
@@ -67,6 +76,46 @@ export default function SecurityTerminal() {
 
   // Poll for active scan output
   const activeScan = displayScans.find(s => s.status === "running");
+
+  // Focus auth input when popup opens
+  useEffect(() => {
+    if (showAuthPopup && authInputRef.current) {
+      setTimeout(() => authInputRef.current?.focus(), 100);
+    }
+  }, [showAuthPopup]);
+
+  // Handle scan button click — show auth popup
+  const handleScanClick = () => {
+    if (!target.trim()) return;
+    setAuthPassword("");
+    setAuthError(false);
+    setAuthShake(false);
+    setShowAuthPopup(true);
+  };
+
+  // Handle auth submission
+  const handleAuthSubmit = () => {
+    if (authPassword === ACCESS_CODE) {
+      setShowAuthPopup(false);
+      setAuthPassword("");
+      setAuthError(false);
+      runScan.mutate();
+    } else {
+      setAuthError(true);
+      setAuthShake(true);
+      setTimeout(() => setAuthShake(false), 600);
+      setAuthPassword("");
+    }
+  };
+
+  const handleAuthKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleAuthSubmit();
+    if (e.key === "Escape") {
+      setShowAuthPopup(false);
+      setAuthPassword("");
+      setAuthError(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -130,12 +179,13 @@ export default function SecurityTerminal() {
                 }}
                 onFocus={(e) => e.currentTarget.style.borderColor = "rgba(61, 242, 224, 0.4)"}
                 onBlur={(e) => e.currentTarget.style.borderColor = "rgba(61, 82, 83, 0.3)"}
+                onKeyDown={(e) => { if (e.key === "Enter") handleScanClick(); }}
                 data-testid="input-target"
               />
             </div>
             <div className="flex items-end">
               <button
-                onClick={() => runScan.mutate()}
+                onClick={handleScanClick}
                 disabled={!target.trim() || runScan.isPending}
                 className="px-6 py-2 rounded-md font-mono text-xs font-bold tracking-wider uppercase transition-all duration-300 disabled:opacity-40"
                 style={{
@@ -159,6 +209,135 @@ export default function SecurityTerminal() {
           )}
         </CardContent>
       </Card>
+
+      {/* ═══ AUTHORIZATION POPUP ═══ */}
+      {showAuthPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0, 0, 0, 0.85)", backdropFilter: "blur(8px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowAuthPopup(false); setAuthPassword(""); setAuthError(false); } }}
+        >
+          <div
+            className={`w-full max-w-md mx-4 rounded-xl border p-6 relative overflow-hidden ${authShake ? 'animate-shake' : ''}`}
+            style={{
+              background: "linear-gradient(180deg, rgba(11, 15, 20, 0.95), rgba(11, 15, 20, 0.98))",
+              borderColor: authError ? "rgba(239, 68, 68, 0.5)" : "rgba(61, 242, 224, 0.3)",
+              boxShadow: authError
+                ? "0 0 40px rgba(239, 68, 68, 0.15), inset 0 0 60px rgba(239, 68, 68, 0.03)"
+                : "0 0 40px rgba(61, 242, 224, 0.1), inset 0 0 60px rgba(61, 242, 224, 0.02)",
+            }}
+          >
+            {/* Scanline effect */}
+            <div className="absolute inset-0 pointer-events-none opacity-[0.03]"
+              style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(61, 242, 224, 0.5) 2px, rgba(61, 242, 224, 0.5) 4px)" }}
+            />
+
+            {/* Warning icon */}
+            <div className="flex justify-center mb-4">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{
+                  background: "rgba(239, 167, 52, 0.1)",
+                  border: "2px solid rgba(239, 167, 52, 0.4)",
+                  boxShadow: "0 0 20px rgba(239, 167, 52, 0.1)",
+                }}
+              >
+                <span className="text-2xl">⚠</span>
+              </div>
+            </div>
+
+            {/* Title */}
+            <h2 className="text-sm font-mono font-bold text-center tracking-widest mb-1" style={{ color: "#EFA734" }}>
+              AUTHORIZATION REQUIRED
+            </h2>
+            <p className="text-[10px] font-mono text-center mb-4 leading-relaxed" style={{ color: "#3D5253" }}>
+              DIETER Security Brain is for penetration testing on systems you<br/>
+              own or have explicit written permission to test.<br/>
+              Unauthorised scanning is illegal.
+            </p>
+
+            {/* Scan details */}
+            <div
+              className="rounded-lg p-3 mb-4"
+              style={{ background: "rgba(61, 242, 224, 0.04)", border: "1px solid rgba(61, 82, 83, 0.2)" }}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: "#3D5253" }}>Tool</span>
+                <span className="text-xs font-mono font-bold" style={{ color: "#3DF2E0" }}>{selectedTool.toUpperCase()}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: "#3D5253" }}>Target</span>
+                <span className="text-xs font-mono font-bold" style={{ color: "#4CC9F0" }}>{target}</span>
+              </div>
+            </div>
+
+            {/* Password input */}
+            <div className="mb-4">
+              <label className="text-[10px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: "#3D5253" }}>
+                Access Code
+              </label>
+              <input
+                ref={authInputRef}
+                type="password"
+                value={authPassword}
+                onChange={(e) => { setAuthPassword(e.target.value); setAuthError(false); }}
+                onKeyDown={handleAuthKeyDown}
+                placeholder="Enter authorization code"
+                className="w-full px-4 py-3 rounded-lg font-mono text-sm outline-none transition-all"
+                style={{
+                  background: "rgba(0, 0, 0, 0.4)",
+                  border: `1px solid ${authError ? 'rgba(239, 68, 68, 0.5)' : 'rgba(61, 82, 83, 0.3)'}`,
+                  color: "#3DF2E0",
+                  caretColor: "#3DF2E0",
+                  letterSpacing: "0.15em",
+                }}
+                data-testid="input-auth-password"
+              />
+              {authError && (
+                <p className="text-[10px] font-mono mt-1.5 flex items-center gap-1" style={{ color: "#ef4444" }}>
+                  <span>✗</span> ACCESS DENIED — Invalid authorization code
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowAuthPopup(false); setAuthPassword(""); setAuthError(false); }}
+                className="flex-1 px-4 py-2.5 rounded-lg font-mono text-xs font-bold tracking-wider uppercase transition-all duration-300"
+                style={{
+                  background: "rgba(61, 82, 83, 0.1)",
+                  border: "1px solid rgba(61, 82, 83, 0.3)",
+                  color: "#3D5253",
+                }}
+                data-testid="button-auth-cancel"
+              >
+                ABORT
+              </button>
+              <button
+                onClick={handleAuthSubmit}
+                disabled={!authPassword.trim()}
+                className="flex-1 px-4 py-2.5 rounded-lg font-mono text-xs font-bold tracking-wider uppercase transition-all duration-300 disabled:opacity-40"
+                style={{
+                  background: "linear-gradient(135deg, rgba(61, 242, 224, 0.15), rgba(76, 201, 240, 0.15))",
+                  border: "1px solid rgba(61, 242, 224, 0.4)",
+                  color: "#3DF2E0",
+                  boxShadow: "0 0 15px rgba(61, 242, 224, 0.1)",
+                }}
+                data-testid="button-auth-confirm"
+              >
+                AUTHORIZE & EXECUTE
+              </button>
+            </div>
+
+            {/* Legal footer */}
+            <p className="text-[9px] font-mono text-center mt-4 leading-relaxed" style={{ color: "rgba(61, 82, 83, 0.5)" }}>
+              All scan operations are logged to DIETER-IDS with full audit trail.
+              Obtain scope agreements before engagements.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Output Terminal */}
       {activeOutput && (
@@ -254,6 +433,18 @@ export default function SecurityTerminal() {
           ))}
         </div>
       </div>
+
+      {/* Shake animation keyframes */}
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+          20%, 40%, 60%, 80% { transform: translateX(4px); }
+        }
+        .animate-shake {
+          animation: shake 0.6s ease-in-out;
+        }
+      `}</style>
     </div>
   );
 }
