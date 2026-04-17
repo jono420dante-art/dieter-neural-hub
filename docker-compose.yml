@@ -1,0 +1,185 @@
+# ═══════════════════════════════════════════════════════════════════
+# DIETER Neural Security Hub — Full Stack Orchestration
+# docker-compose.yml — v6.1
+#
+# AUTHORISED USE ONLY. For penetration testing on systems you own
+# or have explicit written permission to test.
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f        # Follow logs
+#   docker compose down           # Tear down
+#
+# Transparent Programs & Design — Commander Danté
+# ═══════════════════════════════════════════════════════════════════
+
+version: "3.9"
+
+networks:
+  dieter-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  ollama-data:
+  qdrant-data:
+  postgres-data:
+  n8n-data:
+  openwebui-data:
+  dieter-hub-data:
+
+services:
+
+  # ── DIETER Hub — Neural Security Dashboard ──────────────────────
+  dieter-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dieter-hub
+    ports:
+      - "5000:5000"
+    volumes:
+      - dieter-hub-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/dieter.db
+    depends_on:
+      - ollama
+      - postgres
+      - qdrant
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.10
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/services"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Ollama — Local LLM Inference Engine ─────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dieter-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.11
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── Open WebUI — Chat Interface ─────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: dieter-openwebui
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_AUTH=false
+    depends_on:
+      - ollama
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.12
+    restart: unless-stopped
+
+  # ── n8n — Workflow Automation (400+ Integrations) ───────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: dieter-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=dieter
+      - N8N_BASIC_AUTH_PASSWORD=Pielanie420
+      - N8N_HOST=0.0.0.0
+      - WEBHOOK_URL=http://n8n:5678/
+      - GENERIC_TIMEZONE=Africa/Johannesburg
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.13
+    restart: unless-stopped
+
+  # ── Qdrant — Vector Database for RAG / Semantic Search ──────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: dieter-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.14
+    restart: unless-stopped
+
+  # ── PostgreSQL — Persistent Data Store ──────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: dieter-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=dieter
+      - POSTGRES_PASSWORD=Pielanie420
+      - POSTGRES_DB=dieter_db
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.15
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dieter -d dieter_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Security Tools — Nmap, Nikto, Golismero ─────────────────────
+  # These run as utility containers. Invoke via:
+  #   docker compose exec security-tools nmap <target>
+  #   docker compose exec security-tools nikto -h <target>
+  #   docker compose exec security-tools golismero scan <target>
+  security-tools:
+    image: instrumentisto/nmap:latest
+    container_name: dieter-security-tools
+    entrypoint: ["tail", "-f", "/dev/null"]
+    networks:
+      dieter-network:
+        ipv4_address: 172.20.0.20
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+  # ── BDFProxy — Traffic Interception (Requires explicit auth) ────
+  # CAUTION: Only activate on authorised networks with written scope
+  # agreements. Uncomment to enable.
+  # bdfproxy:
+  #   image: bdfproxy/bdfproxy:latest
+  #   container_name: dieter-bdfproxy
+  #   network_mode: host
+  #   cap_add:
+  #     - NET_RAW
+  #     - NET_ADMIN
+  #   restart: "no"
