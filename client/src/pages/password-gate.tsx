@@ -60,6 +60,8 @@ export default function PasswordGate({ onAuthenticated }: PasswordGateProps) {
     return () => clearInterval(interval);
   }, []);
 
+  const ACCESS_CODE = "Pielanie420";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password.trim()) return;
@@ -67,28 +69,26 @@ export default function PasswordGate({ onAuthenticated }: PasswordGateProps) {
     setIsVerifying(true);
     setError("");
 
-    try {
-      const res = await fetch("/api/auth/verify", {
+    // Small delay for the verification animation feel
+    await new Promise(r => setTimeout(r, 800));
+
+    // Client-side verification (works both deployed and local)
+    if (password === ACCESS_CODE) {
+      // Also try notifying the backend (non-blocking)
+      fetch("/api/auth/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setShowGlow(false);
-        setTimeout(onAuthenticated, 600);
-      } else {
-        setError("ACCESS DENIED — Invalid credentials");
-        setShake(true);
-        setTimeout(() => setShake(false), 500);
-        setPassword("");
-      }
-    } catch {
-      setError("CONNECTION FAILED — System unreachable");
+      }).catch(() => {});
+      setIsVerifying(false);
+      setShowGlow(false);
+      setTimeout(onAuthenticated, 600);
+    } else {
+      setIsVerifying(false);
+      setError("ACCESS DENIED — Invalid credentials");
       setShake(true);
       setTimeout(() => setShake(false), 500);
-    } finally {
-      setIsVerifying(false);
+      setPassword("");
     }
   };
 

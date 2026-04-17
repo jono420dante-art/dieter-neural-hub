@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import * as localSim from "@/lib/local-sim";
 import type { ScanJob } from "@shared/schema";
 
 const TOOLS = [
@@ -22,15 +23,36 @@ export default function SecurityTerminal() {
     refetchInterval: 3000,
   });
 
+  const [localScans, setLocalScans] = useState<ScanJob[]>([]);
+  const [useLocal, setUseLocal] = useState(false);
+
+  const refreshLocalScans = useCallback(() => {
+    setLocalScans(localSim.getScans() as unknown as ScanJob[]);
+  }, []);
+
   const runScan = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/scans", {
-        tool: selectedTool,
-        target,
-        status: "queued",
-        createdAt: new Date().toISOString(),
-      });
-      return res.json();
+      try {
+        const res = await apiRequest("POST", "/api/scans", {
+          tool: selectedTool,
+          target,
+          status: "queued",
+          createdAt: new Date().toISOString(),
+        });
+        return res.json();
+      } catch {
+        // Fallback: run locally
+        setUseLocal(true);
+        const job = localSim.createScan(selectedTool, target);
+        // Poll for completion
+        const poll = setInterval(() => {
+          refreshLocalScans();
+          const updated = localSim.getScan(job.id);
+          if (updated && updated.status === "completed") clearInterval(poll);
+        }, 1000);
+        refreshLocalScans();
+        return job;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/scans"] });
@@ -40,8 +62,11 @@ export default function SecurityTerminal() {
     },
   });
 
+  // Use local scans when backend is unavailable
+  const displayScans = useLocal ? localScans : scans;
+
   // Poll for active scan output
-  const activeScan = scans.find(s => s.status === "running");
+  const activeScan = displayScans.find(s => s.status === "running");
 
   return (
     <div className="space-y-6">
@@ -182,12 +207,12 @@ export default function SecurityTerminal() {
           SCAN HISTORY
         </h2>
         <div className="space-y-2">
-          {scans.length === 0 && !isLoading && (
+          {displayScans.length === 0 && !isLoading && (
             <p className="text-xs font-mono text-center py-8" style={{ color: "#3D5253" }}>
               No scans yet. Select a tool and target above.
             </p>
           )}
-          {scans.map((scan: ScanJob) => (
+          {displayScans.map((scan: ScanJob) => (
             <button
               key={scan.id}
               onClick={() => setActiveOutput(scan)}

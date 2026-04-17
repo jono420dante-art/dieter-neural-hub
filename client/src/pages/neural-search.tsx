@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
+import * as localSim from "@/lib/local-sim";
 import spaceBlueprintUrl from "@assets/space-blueprint.jpg";
 
 interface SearchResult {
@@ -23,8 +24,13 @@ export default function NeuralSearch() {
 
   const search = useMutation({
     mutationFn: async (q: string) => {
-      const res = await apiRequest("POST", "/api/search", { query: q });
-      return res.json() as Promise<SearchResponse>;
+      try {
+        const res = await apiRequest("POST", "/api/search", { query: q });
+        return res.json() as Promise<SearchResponse>;
+      } catch {
+        // Fallback to local simulation
+        return localSim.neuralSearch(q) as SearchResponse;
+      }
     },
     onSuccess: (data) => {
       setResponse(data);

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
+import * as localSim from "@/lib/local-sim";
 import type { ChatMessage } from "@shared/schema";
 
 export default function AIChat() {
@@ -13,14 +14,24 @@ export default function AIChat() {
     queryKey: ["/api/chat"],
   });
 
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [useLocal, setUseLocal] = useState(false);
+
   const sendMessage = useMutation({
     mutationFn: async (content: string) => {
-      const res = await apiRequest("POST", "/api/chat", {
-        role: "user",
-        content,
-        createdAt: new Date().toISOString(),
-      });
-      return res.json();
+      try {
+        const res = await apiRequest("POST", "/api/chat", {
+          role: "user",
+          content,
+          createdAt: new Date().toISOString(),
+        });
+        return res.json();
+      } catch {
+        setUseLocal(true);
+        localSim.sendChatMessage(content);
+        setLocalMessages([...localSim.getChatMessages()] as unknown as ChatMessage[]);
+        return null;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chat"] });
@@ -31,16 +42,24 @@ export default function AIChat() {
 
   const clearChat = useMutation({
     mutationFn: async () => {
-      await apiRequest("DELETE", "/api/chat");
+      try {
+        await apiRequest("DELETE", "/api/chat");
+      } catch {
+        setUseLocal(true);
+        localSim.clearChat();
+        setLocalMessages([]);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/chat"] });
     },
   });
 
+  const displayMessages = useLocal ? localMessages : messages;
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, localMessages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +102,7 @@ export default function AIChat() {
         style={{ background: "rgba(11, 15, 20, 0.6)", borderColor: "rgba(61, 82, 83, 0.2)", backdropFilter: "blur(10px)" }}
       >
         <CardContent className="p-4 h-full overflow-y-auto">
-          {messages.length === 0 && (
+          {displayMessages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center">
               <div className="text-center">
                 <div className="text-4xl mb-4 opacity-20">🧠</div>
@@ -97,7 +116,7 @@ export default function AIChat() {
             </div>
           )}
           <div className="space-y-4">
-            {messages.map((msg: ChatMessage) => (
+            {displayMessages.map((msg: ChatMessage) => (
               <div
                 key={msg.id}
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
